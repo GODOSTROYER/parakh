@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.claude/
+deep-research-report.md
+tsconfig.tsbuildinfo
+.jobs/
+worker/.venv/
+worker/model/
+worker/__pycache__/
+*.pyc
+.env*.local
+cloudflared.exe
