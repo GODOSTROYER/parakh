@@ -28,6 +28,7 @@ export interface QuestionResult {
   text: string;
   maxMarks: number;
   answered: boolean;
+  skippedOr: boolean; // OR-choice alternative the student chose not to attempt
   score: number;
   feedback: string;
   highlights: Highlight[];

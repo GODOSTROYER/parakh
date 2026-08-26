@@ -27,10 +27,17 @@ async function ocr(
   filePath: string,
   onPage?: (done: number, total: number) => void
 ): Promise<OcrPage[]> {
-  const { pages } = await workerPost<{ pages: Omit<OcrPage, "markdown" | "regions">[] }>(
-    "/render",
-    { job_id: jobId, kind, file_path: filePath }
-  );
+  const { pages } = await workerPost<
+    { pages: (Omit<OcrPage, "markdown" | "regions"> & { text: string })[] }
+  >("/render", { job_id: jobId, kind, file_path: filePath });
+
+  // Question papers are usually digital PDFs: their embedded text layer is
+  // perfect, needs no bounding boxes, and skips the GPU entirely. OCR remains
+  // the path for scanned papers and for answer sheets (which need boxes).
+  if (kind === "qp" && pages.reduce((n, p) => n + p.text.length, 0) > 200) {
+    return pages.map((p) => ({ ...p, markdown: p.text, regions: [] }));
+  }
+
   const out: OcrPage[] = [];
   for (const p of pages) {
     const r = await workerPost<{ markdown: string; regions: OcrPage["regions"] }>("/ocr_page", {
@@ -53,6 +60,7 @@ interface ExtractedQuestion {
   label: string;
   text: string;
   marks: number;
+  orGroup: string | null;
 }
 
 const QUESTIONS_SCHEMA = {
@@ -69,8 +77,9 @@ const QUESTIONS_SCHEMA = {
           label: { type: "string" },
           text: { type: "string" },
           marks: { type: "number" },
+          orGroup: { type: ["string", "null"] },
         },
-        required: ["qid", "number", "part", "label", "text", "marks"],
+        required: ["qid", "number", "part", "label", "text", "marks", "orGroup"],
         additionalProperties: false,
       },
     },
@@ -87,9 +96,10 @@ async function extractQuestions(qpPages: OcrPage[]): Promise<ExtractedQuestion[]
 
 Rules:
 - Preserve the original printed numbering exactly (in "label", e.g. "3", "11 (a)").
-- Treat labelled sub-parts as SEPARATE entries: "11 (a)" and "11 (b)" are two questions, each with number="11" and part="a"/"b". A question without sub-parts has part=null.
+- Treat labelled sub-parts as SEPARATE entries, whatever the labelling style: "11 (a)"/"11 (b)", "Q1 part 1"/"part 2", "1 (i)"/"1 (ii)", "2.1"/"2.2" — each becomes its own entry with number = the main question number and part = the sub-label ("a", "2", "ii", ...). A question without sub-parts has part=null.
 - "text" is the full question text (include any shared stem/context needed to understand a sub-part, but do not merge sub-parts).
 - "marks" is the printed maximum marks for that question/sub-part. If not printed, estimate sensibly from question type (1 for MCQ/one-liner, 2-3 for short answer, 5 for long/diagram) — never 0.
+- OPTIONAL/OR questions: when the paper offers alternatives ("OR" between two questions, "Answer any one of the following", "Either ... Or ..."), extract EVERY alternative as its own entry and give all alternatives in one choice-set the same "orGroup" id (e.g. "or1"). Questions that are not part of a choice get orGroup=null. Only alternatives of each other share an orGroup — never put a whole section in one group unless the paper says "answer any one".
 - "qid" is a unique id like "q1", "q11a".
 - Ignore headers, instructions, section titles — they are not questions.
 
@@ -163,7 +173,12 @@ async function mapAndGrade(questions: ExtractedQuestion[], ansPages: OcrPage[]):
     )
     .join("\n");
   const questionsText = questions
-    .map((q) => `${q.qid} | Q${q.label} | max ${q.marks} marks | ${q.text}`)
+    .map(
+      (q) =>
+        `${q.qid} | Q${q.label} | max ${q.marks} marks${
+          q.orGroup ? ` | OR-choice group ${q.orGroup} (student answers ONE of these)` : ""
+        } | ${q.text}`
+    )
     .join("\n");
 
   const prompt = `You are grading a student's handwritten answer sheet that was OCR'd into text regions.
@@ -176,8 +191,8 @@ ${regionsText}
 
 Task — for EVERY question qid, produce one result entry:
 1. Find which region(s) contain the student's answer to that question. Use the question numbers the student wrote (e.g. "Q2.", "Ans 3", "11 a)") as the primary signal, and answer content similarity as fallback. Answers may be OUT OF ORDER and may SPAN MULTIPLE regions and multiple pages — include ALL regions belonging to the answer (including continuation regions with no number, diagrams, working, equations that clearly belong to it).
-2. A region containing only the student's own restated heading still counts as part of the answer.
-3. If a question has no answer anywhere: answered=false, regionIds=[], score=0, feedback briefly noting it was left unanswered.
+2. BE PRECISE about sub-parts: when one written section answers several sub-parts (e.g. "1." and "2." under one "Q2" heading), assign each sub-part ONLY the regions containing ITS answer — never the sibling sub-part's regions. A shared section heading region (e.g. "Q2. ...") belongs only to the FIRST sub-part answered under it. When in doubt between including a neighbouring region or not, leave it out.
+3. If a question has no answer anywhere: answered=false, regionIds=[], score=0, feedback briefly noting it was left unanswered. For an OR-choice alternative the student did not attempt (they answered the other alternative), say "Not attempted — the student chose the other option." as feedback.
 4. Grade each answered question out of its max marks (integers or .5 steps). Judge correctness and completeness of the STUDENT's answer against the QUESTION. Be fair: OCR noise on handwriting should not be penalized when intent is clear.
 5. "feedback": 1-2 sentences addressed to the student, specific to what they wrote.
 6. Any region that belongs to NO question (stray notes, doodles, name/roll-number header regions are NOT answers — ignore headers entirely) goes in "unmatched" with a short note, grouped sensibly. Regions used in results must not appear in unmatched.
@@ -187,26 +202,37 @@ Task — for EVERY question qid, produce one result entry:
 
 // ---------- assembly ----------
 
-function unionPerPage(regionIds: string[], ansPages: OcrPage[]): Highlight[] {
-  const byPage = new Map<number, Bbox>();
+// Merge a question's regions into highlight rects: regions on the same page
+// that are vertically adjacent (gap < 2.5% of page height) join one rect;
+// distant regions stay separate so unrelated content in between isn't covered.
+function clusterHighlights(regionIds: string[], ansPages: OcrPage[]): Highlight[] {
+  const byPage = new Map<number, Bbox[]>();
   for (const id of regionIds) {
     const m = /^p(\d+)_r(\d+)$/.exec(id);
     if (!m) continue;
     const page = ansPages.find((p) => p.index === Number(m[1]));
     const region = page?.regions[Number(m[2])];
     if (!page || !region) continue;
-    const cur = byPage.get(page.index);
-    const [x1, y1, x2, y2] = region.bbox;
-    byPage.set(
-      page.index,
-      cur
-        ? [Math.min(cur[0], x1), Math.min(cur[1], y1), Math.max(cur[2], x2), Math.max(cur[3], y2)]
-        : [x1, y1, x2, y2]
-    );
+    (byPage.get(page.index) ?? byPage.set(page.index, []).get(page.index)!).push([
+      ...region.bbox,
+    ]);
   }
-  return [...byPage.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([page, bbox]) => ({ page, bbox }));
+  const GAP = 0.025;
+  const out: Highlight[] = [];
+  for (const [page, boxes] of [...byPage.entries()].sort((a, b) => a[0] - b[0])) {
+    boxes.sort((a, b) => a[1] - b[1]);
+    let cur = boxes[0];
+    for (const b of boxes.slice(1)) {
+      if (b[1] - cur[3] < GAP) {
+        cur = [Math.min(cur[0], b[0]), Math.min(cur[1], b[1]), Math.max(cur[2], b[2]), Math.max(cur[3], b[3])];
+      } else {
+        out.push({ page, bbox: cur });
+        cur = b;
+      }
+    }
+    out.push({ page, bbox: cur });
+  }
+  return out;
 }
 
 export async function runPipeline(jobId: string, qpPath: string, ansPath: string) {
@@ -229,9 +255,16 @@ export async function runPipeline(jobId: string, qpPath: string, ansPath: string
     const mapped = await mapAndGrade(questions, ansPages);
 
     const resultByQid = new Map(mapped.results.map((r) => [r.qid, r]));
+    const answeredInGroup = new Map<string, boolean>();
+    for (const q of questions) {
+      if (q.orGroup && resultByQid.get(q.qid)?.answered) answeredInGroup.set(q.orGroup, true);
+    }
     const questionResults = questions.map((q) => {
       const r = resultByQid.get(q.qid);
       const score = r ? Math.max(0, Math.min(r.score, q.marks)) : 0;
+      const answered = r?.answered ?? false;
+      // an OR alternative left blank while its sibling was answered = a choice, not a miss
+      const skippedOr = !answered && !!q.orGroup && !!answeredInGroup.get(q.orGroup);
       return {
         qid: q.qid,
         label: q.label,
@@ -239,21 +272,37 @@ export async function runPipeline(jobId: string, qpPath: string, ansPath: string
         part: q.part,
         text: q.text,
         maxMarks: q.marks,
-        answered: r?.answered ?? false,
+        answered,
+        skippedOr,
         score,
         feedback: r?.feedback ?? "No answer found for this question.",
-        highlights: r ? unionPerPage(r.regionIds, ansPages) : [],
+        highlights: r ? clusterHighlights(r.regionIds, ansPages) : [],
       };
     });
+
+    // total: each OR choice-set counts once — the attempted alternative's marks
+    const groupOf = new Map(questions.map((q) => [q.qid, q.orGroup]));
+    const seenGroups = new Set<string>();
+    let maxScore = 0;
+    for (const q of questionResults) {
+      const group = groupOf.get(q.qid);
+      if (!group) {
+        maxScore += q.maxMarks;
+      } else if (!seenGroups.has(group)) {
+        seenGroups.add(group);
+        const alts = questionResults.filter((x) => groupOf.get(x.qid) === group);
+        maxScore += (alts.find((a) => a.answered) ?? alts[0]).maxMarks;
+      }
+    }
 
     const result: JobResult = {
       questions: questionResults,
       unmatched: mapped.unmatched
-        .map((u) => ({ note: u.note, highlights: unionPerPage(u.regionIds, ansPages) }))
+        .map((u) => ({ note: u.note, highlights: clusterHighlights(u.regionIds, ansPages) }))
         .filter((u) => u.highlights.length > 0),
       overall: {
         score: questionResults.reduce((s, q) => s + q.score, 0),
-        maxScore: questionResults.reduce((s, q) => s + q.maxMarks, 0),
+        maxScore,
         summary: mapped.overall.summary,
       },
       answerPages: ansPages.map((p) => ({ index: p.index, width: p.width, height: p.height })),

@@ -63,6 +63,24 @@ def qp():
         fontsize=12,
     )
     page.insert_text((500, y), "[2]", fontsize=12, fontname="hebo")
+    y += 44
+    page.insert_text((60, y), "6.", fontsize=12, fontname="hebo")
+    page.insert_textbox(
+        fitz.Rect(85, y - 12, 480, y + 30),
+        "Define osmosis with one example.",
+        fontsize=12,
+    )
+    page.insert_text((500, y), "[2]", fontsize=12, fontname="hebo")
+    y += 30
+    page.insert_text((250, y), "OR", fontsize=12, fontname="hebo")
+    y += 22
+    page.insert_text((60, y), "7.", fontsize=12, fontname="hebo")
+    page.insert_textbox(
+        fitz.Rect(85, y - 12, 480, y + 30),
+        "Define diffusion with one example.",
+        fontsize=12,
+    )
+    page.insert_text((500, y), "[2]", fontsize=12, fontname="hebo")
     doc.save(os.path.join(FIX, "sample_qp.pdf"))
     doc.close()
 
@@ -83,14 +101,15 @@ def answers():
     p1 = doc.new_page(width=W, height=H)
     for x in [(50, 40, "Name: Aarav Sharma"), (350, 40, "Roll No: 17")]:
         hand(p1, (x[0], x[1]), x[2], 14)
-    hand(p1, (50, 90), "Ans 2.  The chloroplast is the organelle involved in photosynthesis. It contains chlorophyll which absorbs light energy.")
-    hand(p1, (50, 150), "Ans 1.  The artery carries blood away from the heart. The aorta is the largest artery.")
-    hand(p1, (50, 210), "Ans 5 (b)  The iodine test is used. Iodine turns blue-black when starch is present.")
-    hand(p1, (50, 270), "Ans 5 (a)  In the dark there is no light energy, so photosynthesis stops and no new starch is made. The stored starch gets used up by the plant.")
-    hand(p1, (50, 350), "Ans 4.  Transpiration is the loss of water as water vapour from the leaves of a plant through the stomata. Water evaporates from the mesophyll cells and diffuses out.")
-    hand(p1, (50, 430), "It creates a suction pull that helps water move up the xylem from the roots.")
+    hand(p1, (50, 85), "Ans 2.  The chloroplast is the organelle involved in photosynthesis. It contains chlorophyll which absorbs light energy.")
+    hand(p1, (50, 135), "Ans 1.  The artery carries blood away from the heart. The aorta is the largest artery.")
+    hand(p1, (50, 180), "Ans 5 (b)  The iodine test is used. Iodine turns blue-black when starch is present.")
+    hand(p1, (50, 225), "Ans 5 (a)  In the dark there is no light energy, so photosynthesis stops and no new starch is made. The stored starch gets used up by the plant.")
+    hand(p1, (50, 295), "Ans 4.  Transpiration is the loss of water as water vapour from the leaves of a plant through the stomata. Water evaporates from the mesophyll cells and diffuses out.")
+    hand(p1, (50, 365), "It creates a suction pull that helps water move up the xylem from the roots.")
+    hand(p1, (50, 410), "Ans 6.  Osmosis is the movement of water from a dilute solution to a concentrated solution through a semi-permeable membrane. Example: raisins swell in water.")
     # stray note that matches no question
-    hand(p1, (50, 500), "(remember to revise diagrams for next test!!)", 13)
+    hand(p1, (50, 480), "(remember to revise diagrams for next test!!)", 13)
 
     p2 = doc.new_page(width=W, height=H)
     hand(p2, (50, 60), "Ans 4 continued.  Two factors that increase the rate of transpiration are: 1. Higher temperature  2. Wind / air movement. Dry air also increases it.")

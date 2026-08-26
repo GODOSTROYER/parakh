@@ -37,13 +37,14 @@ def load_model():
         from transformers import AutoModel, AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-        model = AutoModel.from_pretrained(
+        m = AutoModel.from_pretrained(
             MODEL_NAME,
             _attn_implementation=ATTN_IMPL,
             trust_remote_code=True,
             use_safetensors=True,
         )
-        model = model.eval().cuda().to(torch.bfloat16)
+        m = m.eval().cuda().to(torch.bfloat16)
+        model = m  # publish only once fully cast — /health gates on this
         print("model loaded", flush=True)
     except Exception as e:
         load_error = f"{e}\n{traceback.format_exc()}"
@@ -110,9 +111,9 @@ def parse_grounding(raw: str):
 
 
 def render_pages(file_path: str, out_dir: str, max_pages: int):
-    """PDF or image -> list of PNG paths."""
+    """PDF or image -> list of (png_path, embedded_text)."""
     os.makedirs(out_dir, exist_ok=True)
-    paths = []
+    pages = []
     if file_path.lower().endswith(".pdf"):
         doc = fitz.open(file_path)
         for i, page in enumerate(doc):
@@ -121,7 +122,7 @@ def render_pages(file_path: str, out_dir: str, max_pages: int):
             pix = page.get_pixmap(dpi=DPI)
             p = os.path.join(out_dir, f"page_{i}.png")
             pix.save(p)
-            paths.append(p)
+            pages.append((p, page.get_text().strip()))
         doc.close()
     else:
         img = Image.open(file_path).convert("RGB")
@@ -130,8 +131,8 @@ def render_pages(file_path: str, out_dir: str, max_pages: int):
             img.thumbnail((2200, 2200))
         p = os.path.join(out_dir, "page_0.png")
         img.save(p)
-        paths.append(p)
-    return paths
+        pages.append((p, ""))
+    return pages
 
 
 def run_infer(image_path: str, out_dir: str, base_size=1024, image_size=640, crop_mode=True):
@@ -167,12 +168,14 @@ def render(req: RenderRequest):
     if not os.path.isfile(req.file_path):
         raise HTTPException(400, f"file not found: {req.file_path}")
     job_dir = os.path.join(JOBS_DIR, req.job_id, req.kind)
-    page_paths = render_pages(req.file_path, job_dir, req.max_pages)
+    rendered = render_pages(req.file_path, job_dir, req.max_pages)
     pages = []
-    for i, p in enumerate(page_paths):
+    for i, (p, text) in enumerate(rendered):
         with Image.open(p) as im:
             w, h = im.size
-        pages.append({"index": i, "width": w, "height": h, "image": f"page_{i}.png"})
+        pages.append(
+            {"index": i, "width": w, "height": h, "image": f"page_{i}.png", "text": text}
+        )
     return {"pages": pages}
 
 

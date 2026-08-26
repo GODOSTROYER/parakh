@@ -7,6 +7,7 @@ import type { JobResult, QuestionResult } from "@/lib/types";
 const ZOOMS = [50, 75, 100, 125, 150, 200];
 
 function scorePill(q: QuestionResult) {
+  if (q.skippedOr) return "bg-offwhite text-muted";
   const ratio = q.maxMarks > 0 ? q.score / q.maxMarks : 0;
   if (!q.answered || q.score === 0)
     return "bg-danger-bg text-danger";
@@ -55,7 +56,9 @@ function QuestionCard({
         <span
           className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-base font-bold ${scorePill(q)}`}
         >
-          {q.score % 1 === 0 ? q.score : q.score.toFixed(1)} / {q.maxMarks}
+          {q.skippedOr
+            ? "OR — skipped"
+            : `${q.score % 1 === 0 ? q.score : q.score.toFixed(1)} / ${q.maxMarks}`}
         </span>
         <button
           aria-label={expanded ? "Collapse" : "Expand"}
@@ -76,7 +79,7 @@ function QuestionCard({
         <div className="flex flex-col gap-2.5 rounded-2xl bg-offwhite px-6 py-4">
           <p className="text-base font-bold text-ink">AI Feedback</p>
           <p className="text-sm leading-[1.4] text-ink">{q.feedback}</p>
-          {!q.answered && (
+          {!q.answered && !q.skippedOr && (
             <p className="text-sm font-bold text-danger">Not answered</p>
           )}
         </div>
