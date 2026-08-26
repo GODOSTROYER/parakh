@@ -47,6 +47,10 @@ DeepSeek's normalized boxes (0–999 → 0–1) are unioned per page per questio
 ### Grading
 Score per question (capped at max marks), 1–2 sentences of feedback addressed to the student, plus an overall teacher summary with the total. OCR noise on handwriting is explicitly not penalized when intent is clear.
 
+- **Marking scheme (optional)**: a third upload slot accepts the teacher's marking scheme; grading then follows its criteria instead of general judgment.
+- **Diagram vision pass**: questions that ask to draw/label/sketch are re-graded from cropped images of the student's actual answer region (GPT-5.6 Luna vision), since text OCR can't see drawings.
+- **OR / optional questions**: both alternatives are extracted; the skipped one shows "OR — skipped" and the total counts the choice-set once.
+
 ## Stack
 
 | Layer | Tech |
@@ -90,11 +94,14 @@ Sample files to try are in `fixtures/` (synthetic, exercises every edge case) an
 | `CODEX_MODEL` | `gpt-5.6-luna` | Codex model slug |
 | `RENDER_DPI` | `150` | PDF render DPI |
 | `ATTN_IMPL` | `eager` | Attention implementation (no flash-attn required) |
+| `DEMO_KEY` | unset | If set, uploads require `?key=<value>` in the page URL (protects a public tunnel) |
+| `CODEX_TIMEOUT_MS` | `300000` | Per-LLM-call timeout (one retry on failure) |
 
 ## Assumptions & limitations
 
-- One answer sheet per run; jobs are in-memory (no DB, no auth — per assignment scope).
-- OCR quality on very messy handwriting bounds mapping quality; the grader is told not to penalize OCR noise when intent is clear.
+- One answer sheet per run; job state is in-memory with completed results persisted to disk (survive restarts; swept after 24h). No auth per assignment scope — set `DEMO_KEY` to gate a public tunnel.
+- Digital question papers use the PDF text layer (exact); **scanned** question papers fall back to OCR and inherit its accuracy.
+- OCR quality on very messy handwriting bounds mapping quality; the grader is told not to penalize OCR noise when intent is clear. A failed page degrades (skipped with a console warning) rather than failing the run.
 - Marks not printed on the paper are estimated from question type.
-- The GPU worker processes one page at a time (~35s/page on an RTX 4060); a second upload queues behind the first.
+- The GPU worker processes one page at a time (~35–80s/page on an RTX 4060); a second upload queues behind the first.
 - The live URL requires the local GPU machine to be running; a quick tunnel's URL changes on restart.

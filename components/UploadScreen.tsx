@@ -110,11 +110,13 @@ export default function UploadScreen({
   onStart,
   error,
 }: {
-  onStart: (qp: File, ans: File) => void;
+  onStart: (qp: File, ans: File, scheme: File | null) => void;
   error: string | null;
 }) {
   const [qp, setQp] = useState<Picked | null>(null);
   const [ans, setAns] = useState<Picked | null>(null);
+  const [scheme, setScheme] = useState<Picked | null>(null);
+  const [showScheme, setShowScheme] = useState(false);
   const ready = qp && ans;
 
   const pick = (set: (p: Picked) => void) => async (file: File) => {
@@ -192,13 +194,30 @@ export default function UploadScreen({
               onClear={() => setAns(null)}
             />
           </div>
+          {showScheme ? (
+            <div className="mt-3 h-[120px]">
+              <UploadCard
+                title="Marking Scheme"
+                picked={scheme}
+                onPick={pick(setScheme)}
+                onClear={() => setScheme(null)}
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowScheme(true)}
+              className="mt-2 w-full text-center text-sm text-[rgba(94,94,94,0.8)] underline-offset-2 hover:underline"
+            >
+              + Add marking scheme (optional)
+            </button>
+          )}
         </div>
       </div>
 
       <div className="flex flex-col items-center gap-3">
         <button
           disabled={!ready}
-          onClick={() => ready && onStart(qp.file, ans.file)}
+          onClick={() => ready && onStart(qp.file, ans.file, scheme?.file ?? null)}
           className={`flex items-center gap-2 rounded-full border-2 border-white/15 bg-ink py-3 pl-6 pr-5 text-sm font-medium text-white transition-opacity ${
             ready ? "shadow-[0px_4px_5px_rgba(0,0,0,0.12)] hover:opacity-90" : "opacity-25"
           }`}

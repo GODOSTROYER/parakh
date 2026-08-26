@@ -1,13 +1,15 @@
+import { writeFile } from "fs/promises";
+import path from "path";
 import { updateJob } from "./store";
-import { codexJson } from "./codex";
+import { assertCodexReady, codexJson } from "./codex";
 import type { Bbox, Highlight, JobResult, OcrPage } from "./types";
 
 const WORKER_URL = process.env.WORKER_URL || "http://127.0.0.1:8100";
 
-async function workerPost<T>(path: string, body: object): Promise<T> {
+async function workerPost<T>(pathName: string, body: object): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${WORKER_URL}${path}`, {
+    res = await fetch(`${WORKER_URL}${pathName}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -17,13 +19,13 @@ async function workerPost<T>(path: string, body: object): Promise<T> {
       `OCR worker is not reachable at ${WORKER_URL} — start it with scripts/start-worker.ps1`
     );
   }
-  if (!res.ok) throw new Error(`OCR worker ${path} failed (${res.status}): ${await res.text()}`);
+  if (!res.ok) throw new Error(`OCR worker ${pathName} failed (${res.status}): ${await res.text()}`);
   return res.json() as Promise<T>;
 }
 
 async function ocr(
   jobId: string,
-  kind: "qp" | "ans",
+  kind: "qp" | "ans" | "scheme",
   filePath: string,
   onPage?: (done: number, total: number) => void
 ): Promise<OcrPage[]> {
@@ -31,39 +33,54 @@ async function ocr(
     { pages: (Omit<OcrPage, "markdown" | "regions"> & { text: string })[] }
   >("/render", { job_id: jobId, kind, file_path: filePath });
 
-  // Question papers are usually digital PDFs: their embedded text layer is
-  // perfect, needs no bounding boxes, and skips the GPU entirely. OCR remains
-  // the path for scanned papers and for answer sheets (which need boxes).
-  if (kind === "qp" && pages.reduce((n, p) => n + p.text.length, 0) > 200) {
+  // Question papers / marking schemes are usually digital PDFs: the embedded
+  // text layer is perfect, needs no boxes, and skips the GPU entirely. OCR
+  // remains the path for scans and for answer sheets (which need boxes).
+  if (kind !== "ans" && pages.reduce((n, p) => n + p.text.length, 0) > 200) {
     return pages.map((p) => ({ ...p, markdown: p.text, regions: [] }));
   }
 
   const out: OcrPage[] = [];
   for (const p of pages) {
-    const r = await workerPost<{ markdown: string; regions: OcrPage["regions"] }>("/ocr_page", {
-      job_id: jobId,
-      kind,
-      index: p.index,
-    });
+    let r: { markdown: string; regions: OcrPage["regions"] };
+    try {
+      r = await workerPost("/ocr_page", { job_id: jobId, kind, index: p.index });
+    } catch {
+      try {
+        r = await workerPost("/ocr_page", { job_id: jobId, kind, index: p.index });
+      } catch (e2) {
+        // degrade: an unreadable page shouldn't throw away the whole run
+        console.error(`OCR failed twice on ${kind} page ${p.index}:`, e2);
+        r = { markdown: "", regions: [] };
+      }
+    }
     out.push({ ...p, ...r });
     onPage?.(out.length, pages.length);
   }
   return out;
 }
 
-// ---------- codex call 1: structure the questions ----------
+// ---------- single LLM call: extract + map + grade ----------
 
-interface ExtractedQuestion {
-  qid: string;
-  number: string;
-  part: string | null;
-  label: string;
-  text: string;
-  marks: number;
-  orGroup: string | null;
+interface AnalysisOut {
+  questions: {
+    qid: string;
+    number: string;
+    part: string | null;
+    label: string;
+    text: string;
+    marks: number;
+    orGroup: string | null;
+    answered: boolean;
+    regionIds: string[];
+    score: number;
+    feedback: string;
+  }[];
+  unmatched: { regionIds: string[]; note: string }[];
+  overall: { summary: string };
 }
 
-const QUESTIONS_SCHEMA = {
+const ANALYSIS_SCHEMA = {
   type: "object",
   properties: {
     questions: {
@@ -78,66 +95,15 @@ const QUESTIONS_SCHEMA = {
           text: { type: "string" },
           marks: { type: "number" },
           orGroup: { type: ["string", "null"] },
-        },
-        required: ["qid", "number", "part", "label", "text", "marks", "orGroup"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["questions"],
-  additionalProperties: false,
-};
-
-async function extractQuestions(qpPages: OcrPage[]): Promise<ExtractedQuestion[]> {
-  const paper = qpPages
-    .map((p) => `--- PAGE ${p.index + 1} ---\n${p.markdown}`)
-    .join("\n\n");
-  const prompt = `You are given the OCR text of an exam question paper. Extract EVERY question in the exact printed order.
-
-Rules:
-- Preserve the original printed numbering exactly (in "label", e.g. "3", "11 (a)").
-- Treat labelled sub-parts as SEPARATE entries, whatever the labelling style: "11 (a)"/"11 (b)", "Q1 part 1"/"part 2", "1 (i)"/"1 (ii)", "2.1"/"2.2" — each becomes its own entry with number = the main question number and part = the sub-label ("a", "2", "ii", ...). A question without sub-parts has part=null.
-- "text" is the full question text (include any shared stem/context needed to understand a sub-part, but do not merge sub-parts).
-- "marks" is the printed maximum marks for that question/sub-part. If not printed, estimate sensibly from question type (1 for MCQ/one-liner, 2-3 for short answer, 5 for long/diagram) — never 0.
-- OPTIONAL/OR questions: when the paper offers alternatives ("OR" between two questions, "Answer any one of the following", "Either ... Or ..."), extract EVERY alternative as its own entry and give all alternatives in one choice-set the same "orGroup" id (e.g. "or1"). Questions that are not part of a choice get orGroup=null. Only alternatives of each other share an orGroup — never put a whole section in one group unless the paper says "answer any one".
-- "qid" is a unique id like "q1", "q11a".
-- Ignore headers, instructions, section titles — they are not questions.
-
-QUESTION PAPER OCR:
-${paper}`;
-  const out = await codexJson<{ questions: ExtractedQuestion[] }>(prompt, QUESTIONS_SCHEMA);
-  return out.questions;
-}
-
-// ---------- codex call 2: map answers to questions + grade ----------
-
-interface MapResult {
-  results: {
-    qid: string;
-    answered: boolean;
-    regionIds: string[];
-    score: number;
-    feedback: string;
-  }[];
-  unmatched: { regionIds: string[]; note: string }[];
-  overall: { summary: string };
-}
-
-const MAP_SCHEMA = {
-  type: "object",
-  properties: {
-    results: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          qid: { type: "string" },
           answered: { type: "boolean" },
           regionIds: { type: "array", items: { type: "string" } },
           score: { type: "number" },
           feedback: { type: "string" },
         },
-        required: ["qid", "answered", "regionIds", "score", "feedback"],
+        required: [
+          "qid", "number", "part", "label", "text", "marks", "orGroup",
+          "answered", "regionIds", "score", "feedback",
+        ],
         additionalProperties: false,
       },
     },
@@ -160,47 +126,128 @@ const MAP_SCHEMA = {
       additionalProperties: false,
     },
   },
-  required: ["results", "unmatched", "overall"],
+  required: ["questions", "unmatched", "overall"],
   additionalProperties: false,
 };
 
-async function mapAndGrade(questions: ExtractedQuestion[], ansPages: OcrPage[]): Promise<MapResult> {
+function analysisPrompt(qpPages: OcrPage[], ansPages: OcrPage[], schemeText: string | null) {
+  const paper = qpPages.map((p) => `--- QP PAGE ${p.index + 1} ---\n${p.markdown}`).join("\n\n");
   const regionsText = ansPages
     .map((p) =>
       p.regions
-        .map((r, i) => `[p${p.index}_r${i}] (page ${p.index + 1}) ${r.text.replace(/\s+/g, " ").slice(0, 600)}`)
+        .map((r, i) => `[p${p.index}_r${i}] (page ${p.index + 1}) ${r.text.replace(/\s+/g, " ").slice(0, 1500)}`)
         .join("\n")
     )
     .join("\n");
-  const questionsText = questions
-    .map(
-      (q) =>
-        `${q.qid} | Q${q.label} | max ${q.marks} marks${
-          q.orGroup ? ` | OR-choice group ${q.orGroup} (student answers ONE of these)` : ""
-        } | ${q.text}`
-    )
-    .join("\n");
 
-  const prompt = `You are grading a student's handwritten answer sheet that was OCR'd into text regions.
+  return `You are an examiner. You get (A) the OCR/text of an exam QUESTION PAPER, (B) the OCR'd text regions of one student's handwritten ANSWER SHEET${schemeText ? ", and (C) the teacher's MARKING SCHEME" : ""}. Produce the full assessment in one pass.
 
-QUESTIONS (from the question paper):
-${questionsText}
+STEP 1 — extract EVERY question, in exact printed order:
+- Preserve printed numbering in "label" (e.g. "3", "11 (a)").
+- Labelled sub-parts are SEPARATE entries whatever the style — "11 (a)"/"11 (b)", "Q1 part 1"/"part 2", "1 (i)"/"1 (ii)", "2.1"/"2.2" — number = main number, part = sub-label. No sub-parts → part=null.
+- "text" = full question text (include shared stem/context a sub-part needs; never merge sub-parts).
+- "marks" = printed max marks; if absent, estimate by type (1 MCQ/one-liner, 2-3 short, 5 long/diagram) — never 0.
+- OPTIONAL/OR choices ("OR" between questions, "Answer any one", "Either/Or"): every alternative is its own entry, all alternatives of one choice-set share the same "orGroup" id; others get orGroup=null.
+- "qid" unique like "q1", "q11a". Ignore headers/instructions/section titles.
 
-ANSWER SHEET REGIONS (id, page, OCR text — reading order within each page):
+STEP 2 — map each question to its answer regions:
+- Use the student's own numbering ("Q2.", "Ans 3", "11 a)") as the primary signal, content similarity as fallback. Answers may be OUT OF ORDER and may SPAN multiple regions and pages — include ALL of its regions (continuations, working, equations, diagram captions).
+- BE PRECISE about sub-parts: assign each sub-part ONLY the regions containing ITS answer, never a sibling's. A shared heading region belongs only to the first sub-part under it. In doubt → leave it out.
+- No answer anywhere: answered=false, regionIds=[], score=0, feedback notes it. For an unattempted OR alternative whose sibling was answered: feedback "Not attempted — the student chose the other option."
+- Regions belonging to NO question (stray notes, doodles; name/roll headers are NOT answers) go in "unmatched" with a short note. Regions used in questions must not appear in unmatched.
+
+STEP 3 — grade:
+- Score each answered question out of its marks (integers or .5).${schemeText ? " Grade AGAINST THE MARKING SCHEME below — award marks per its criteria." : " Judge correctness and completeness against the question."}
+- Be fair: OCR noise on handwriting is not the student's fault when intent is clear.
+- "feedback": 1-2 sentences addressed to the student, specific to what they wrote.
+- "overall.summary": 2-3 sentences for the teacher — performance, strengths, gaps.
+
+(A) QUESTION PAPER:
+${paper}
+
+(B) ANSWER SHEET REGIONS (id, page, text — reading order per page):
 ${regionsText}
-
-Task — for EVERY question qid, produce one result entry:
-1. Find which region(s) contain the student's answer to that question. Use the question numbers the student wrote (e.g. "Q2.", "Ans 3", "11 a)") as the primary signal, and answer content similarity as fallback. Answers may be OUT OF ORDER and may SPAN MULTIPLE regions and multiple pages — include ALL regions belonging to the answer (including continuation regions with no number, diagrams, working, equations that clearly belong to it).
-2. BE PRECISE about sub-parts: when one written section answers several sub-parts (e.g. "1." and "2." under one "Q2" heading), assign each sub-part ONLY the regions containing ITS answer — never the sibling sub-part's regions. A shared section heading region (e.g. "Q2. ...") belongs only to the FIRST sub-part answered under it. When in doubt between including a neighbouring region or not, leave it out.
-3. If a question has no answer anywhere: answered=false, regionIds=[], score=0, feedback briefly noting it was left unanswered. For an OR-choice alternative the student did not attempt (they answered the other alternative), say "Not attempted — the student chose the other option." as feedback.
-4. Grade each answered question out of its max marks (integers or .5 steps). Judge correctness and completeness of the STUDENT's answer against the QUESTION. Be fair: OCR noise on handwriting should not be penalized when intent is clear.
-5. "feedback": 1-2 sentences addressed to the student, specific to what they wrote.
-6. Any region that belongs to NO question (stray notes, doodles, name/roll-number header regions are NOT answers — ignore headers entirely) goes in "unmatched" with a short note, grouped sensibly. Regions used in results must not appear in unmatched.
-7. "overall.summary": 2-3 sentences for the teacher on the student's performance, strengths and gaps.`;
-  return codexJson<MapResult>(prompt, MAP_SCHEMA);
+${schemeText ? `\n(C) MARKING SCHEME:\n${schemeText}` : ""}`;
 }
 
-// ---------- assembly ----------
+// ---------- vision re-grade for diagram questions ----------
+
+const DIAGRAM_RE = /\b(draw|diagram|label|labelled|sketch|graph|figure|plot)\b/i;
+
+const VISION_SCHEMA = {
+  type: "object",
+  properties: {
+    regrades: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          qid: { type: "string" },
+          score: { type: "number" },
+          feedback: { type: "string" },
+        },
+        required: ["qid", "score", "feedback"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["regrades"],
+  additionalProperties: false,
+};
+
+async function visionRegrade(
+  jobId: string,
+  analysis: AnalysisOut,
+  highlightsByQid: Map<string, Highlight[]>
+): Promise<void> {
+  const targets = analysis.questions.filter(
+    (q) => q.answered && DIAGRAM_RE.test(q.text) && (highlightsByQid.get(q.qid)?.length ?? 0) > 0
+  );
+  if (!targets.length) return;
+
+  const images: string[] = [];
+  const lines: string[] = [];
+  for (const q of targets.slice(0, 6)) {
+    // crop each highlight rect of the question (max 2 per question)
+    for (const [i, h] of (highlightsByQid.get(q.qid) ?? []).slice(0, 2).entries()) {
+      const { path: p } = await workerPost<{ path: string }>("/crop", {
+        job_id: jobId,
+        kind: "ans",
+        index: h.page,
+        bbox: h.bbox,
+        name: `${q.qid}_${i}`,
+      });
+      images.push(p);
+      lines.push(
+        `Image ${images.length}: answer of ${q.qid} (Q${q.label}, max ${q.marks} marks) — "${q.text.slice(0, 200)}" (currently ${q.score}/${q.marks})`
+      );
+    }
+  }
+  if (!images.length) return;
+
+  const prompt = `These images are cropped regions of a student's handwritten answer sheet for questions that ask for a DIAGRAM/drawing/graph. The scores so far were graded from OCR text only, which cannot see drawings. Look at each image and re-grade the question out of its max marks, now accounting for the drawing itself (structure, labels, correctness). Keep the score unchanged if the image shows no meaningful drawing beyond the text. Give 1-2 sentences of feedback per question mentioning the visual work.
+
+${lines.join("\n")}`;
+
+  try {
+    const out = await codexJson<{ regrades: { qid: string; score: number; feedback: string }[] }>(
+      prompt,
+      VISION_SCHEMA,
+      images
+    );
+    for (const r of out.regrades) {
+      const q = analysis.questions.find((x) => x.qid === r.qid);
+      if (q) {
+        q.score = r.score;
+        q.feedback = r.feedback;
+      }
+    }
+  } catch (e) {
+    console.error("vision regrade skipped:", e); // grading already has a text-based score
+  }
+}
+
+// ---------- highlight assembly ----------
 
 // Merge a question's regions into highlight rects: regions on the same page
 // that are vertically adjacent (gap < 2.5% of page height) join one rect;
@@ -213,9 +260,8 @@ function clusterHighlights(regionIds: string[], ansPages: OcrPage[]): Highlight[
     const page = ansPages.find((p) => p.index === Number(m[1]));
     const region = page?.regions[Number(m[2])];
     if (!page || !region) continue;
-    (byPage.get(page.index) ?? byPage.set(page.index, []).get(page.index)!).push([
-      ...region.bbox,
-    ]);
+    if (!byPage.has(page.index)) byPage.set(page.index, []);
+    byPage.get(page.index)!.push([...region.bbox]);
   }
   const GAP = 0.025;
   const out: Highlight[] = [];
@@ -235,34 +281,64 @@ function clusterHighlights(regionIds: string[], ansPages: OcrPage[]): Highlight[
   return out;
 }
 
-export async function runPipeline(jobId: string, qpPath: string, ansPath: string) {
+export async function runPipeline(
+  jobId: string,
+  qpPath: string,
+  ansPath: string,
+  schemePath?: string
+) {
   try {
+    await assertCodexReady();
+
     updateJob(jobId, { stage: "reading_qp", progress: 5, detail: "Reading question paper" });
     const qpPages = await ocr(jobId, "qp", qpPath, (done, total) =>
-      updateJob(jobId, { progress: 5 + Math.round((done / total) * 25) })
+      updateJob(jobId, {
+        progress: 5 + Math.round((done / total) * 20),
+        detail: `Reading question paper · page ${done} of ${total}`,
+      })
     );
+
+    let schemeText: string | null = null;
+    if (schemePath) {
+      updateJob(jobId, { progress: 25, detail: "Reading marking scheme" });
+      const schemePages = await ocr(jobId, "scheme", schemePath);
+      schemeText = schemePages.map((p) => p.markdown).join("\n\n") || null;
+    }
 
     updateJob(jobId, { stage: "reading_answers", progress: 30, detail: "Reading answer sheet" });
     const ansPages = await ocr(jobId, "ans", ansPath, (done, total) =>
-      updateJob(jobId, { progress: 30 + Math.round((done / total) * 30) })
+      updateJob(jobId, {
+        progress: 30 + Math.round((done / total) * 40),
+        detail: `Reading answer sheet · page ${done} of ${total}`,
+      })
+    );
+    if (!ansPages.some((p) => p.regions.length > 0)) {
+      throw new Error("Could not read any text regions from the answer sheet");
+    }
+
+    updateJob(jobId, { stage: "mapping_grading", progress: 72, detail: "Extracting, mapping & grading" });
+    const analysis = await codexJson<AnalysisOut>(
+      analysisPrompt(qpPages, ansPages, schemeText),
+      ANALYSIS_SCHEMA
+    );
+    if (!analysis.questions.length) {
+      throw new Error("No questions could be extracted from the question paper");
+    }
+
+    const highlightsByQid = new Map(
+      analysis.questions.map((q) => [q.qid, clusterHighlights(q.regionIds, ansPages)])
     );
 
-    updateJob(jobId, { stage: "extracting_questions", progress: 60, detail: "Extracting questions" });
-    const questions = await extractQuestions(qpPages);
-    if (!questions.length) throw new Error("No questions could be extracted from the question paper");
+    updateJob(jobId, { progress: 88, detail: "Reviewing diagrams" });
+    await visionRegrade(jobId, analysis, highlightsByQid);
 
-    updateJob(jobId, { stage: "mapping_grading", progress: 75, detail: "Mapping answers & grading" });
-    const mapped = await mapAndGrade(questions, ansPages);
-
-    const resultByQid = new Map(mapped.results.map((r) => [r.qid, r]));
+    // assemble result
     const answeredInGroup = new Map<string, boolean>();
-    for (const q of questions) {
-      if (q.orGroup && resultByQid.get(q.qid)?.answered) answeredInGroup.set(q.orGroup, true);
+    for (const q of analysis.questions) {
+      if (q.orGroup && q.answered) answeredInGroup.set(q.orGroup, true);
     }
-    const questionResults = questions.map((q) => {
-      const r = resultByQid.get(q.qid);
-      const score = r ? Math.max(0, Math.min(r.score, q.marks)) : 0;
-      const answered = r?.answered ?? false;
+    const questionResults = analysis.questions.map((q) => {
+      const answered = q.answered;
       // an OR alternative left blank while its sibling was answered = a choice, not a miss
       const skippedOr = !answered && !!q.orGroup && !!answeredInGroup.get(q.orGroup);
       return {
@@ -274,14 +350,14 @@ export async function runPipeline(jobId: string, qpPath: string, ansPath: string
         maxMarks: q.marks,
         answered,
         skippedOr,
-        score,
-        feedback: r?.feedback ?? "No answer found for this question.",
-        highlights: r ? clusterHighlights(r.regionIds, ansPages) : [],
+        score: Math.max(0, Math.min(q.score, q.marks)),
+        feedback: q.feedback,
+        highlights: highlightsByQid.get(q.qid) ?? [],
       };
     });
 
     // total: each OR choice-set counts once — the attempted alternative's marks
-    const groupOf = new Map(questions.map((q) => [q.qid, q.orGroup]));
+    const groupOf = new Map(analysis.questions.map((q) => [q.qid, q.orGroup]));
     const seenGroups = new Set<string>();
     let maxScore = 0;
     for (const q of questionResults) {
@@ -297,16 +373,22 @@ export async function runPipeline(jobId: string, qpPath: string, ansPath: string
 
     const result: JobResult = {
       questions: questionResults,
-      unmatched: mapped.unmatched
+      unmatched: analysis.unmatched
         .map((u) => ({ note: u.note, highlights: clusterHighlights(u.regionIds, ansPages) }))
         .filter((u) => u.highlights.length > 0),
       overall: {
         score: questionResults.reduce((s, q) => s + q.score, 0),
         maxScore,
-        summary: mapped.overall.summary,
+        summary: analysis.overall.summary,
       },
       answerPages: ansPages.map((p) => ({ index: p.index, width: p.width, height: p.height })),
     };
+
+    // persist so results survive a server restart
+    await writeFile(
+      path.join(process.cwd(), ".jobs", jobId, "result.json"),
+      JSON.stringify(result)
+    ).catch(() => {});
 
     updateJob(jobId, { stage: "done", progress: 100, detail: "Done", result });
   } catch (e) {

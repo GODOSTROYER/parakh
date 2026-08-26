@@ -8,14 +8,6 @@ import LoadingScreen from "@/components/LoadingScreen";
 import MappingScreen from "@/components/MappingScreen";
 import type { Job } from "@/lib/types";
 
-const STAGE_TEXT: Record<string, string> = {
-  queued: "Preparing...",
-  reading_qp: "Reading question paper...",
-  reading_answers: "Reading answer sheet...",
-  extracting_questions: "Extracting...",
-  mapping_grading: "Mapping & grading...",
-};
-
 export default function Home() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -27,12 +19,26 @@ export default function Home() {
     pollRef.current = null;
   };
 
-  const start = useCallback(async (qp: File, ans: File) => {
+  const reset = (message: string | null) => {
+    stopPoll();
+    setError(message);
+    setJobId(null);
+    setJob(null);
+    history.replaceState(null, "", location.pathname);
+  };
+
+  const start = useCallback(async (qp: File, ans: File, scheme: File | null) => {
     setError(null);
     const form = new FormData();
     form.append("qp", qp);
     form.append("ans", ans);
-    const res = await fetch("/api/process", { method: "POST", body: form });
+    if (scheme) form.append("scheme", scheme);
+    // pass the demo access key through if the page was opened with one
+    const key = new URLSearchParams(location.search).get("key");
+    const res = await fetch(`/api/process${key ? `?key=${encodeURIComponent(key)}` : ""}`, {
+      method: "POST",
+      body: form,
+    });
     const data = await res.json();
     if (!res.ok) {
       setError(data.error ?? "Upload failed");
@@ -40,7 +46,9 @@ export default function Home() {
     }
     setJobId(data.jobId);
     setJob({ id: data.jobId, stage: "queued", progress: 0, detail: "Queued", createdAt: 0 });
-    history.replaceState(null, "", `?job=${data.jobId}`);
+    const params = new URLSearchParams(location.search);
+    params.set("job", data.jobId);
+    history.replaceState(null, "", `?${params}`);
   }, []);
 
   // resume viewing an existing job after refresh (?job=<id>)
@@ -54,14 +62,15 @@ export default function Home() {
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/jobs/${jobId}`);
+        if (res.status === 404) {
+          reset("That session has expired — upload the files again to re-run it.");
+          return;
+        }
         if (!res.ok) return;
         const j: Job = await res.json();
         setJob(j);
-        if (j.stage === "done" || j.stage === "error") stopPoll();
-        if (j.stage === "error") {
-          setError(j.error ?? "Processing failed");
-          setJobId(null);
-        }
+        if (j.stage === "done") stopPoll();
+        if (j.stage === "error") reset(j.error ?? "Processing failed");
       } catch {
         /* transient network error — keep polling */
       }
@@ -79,7 +88,7 @@ export default function Home() {
         <TopBar />
         {phase === "upload" && <UploadScreen onStart={start} error={error} />}
         {phase === "loading" && (
-          <LoadingScreen detail={STAGE_TEXT[job?.stage ?? "queued"] ?? "Working..."} />
+          <LoadingScreen detail={job?.detail && job.detail !== "Queued" ? job.detail : "Preparing..."} />
         )}
         {phase === "results" && job?.result && jobId && (
           <MappingScreen jobId={jobId} result={job.result} />

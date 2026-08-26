@@ -1,8 +1,12 @@
-# Starts worker + Next.js app + Cloudflare quick tunnel (live URL).
+# Starts worker + Next.js app (production build) + Cloudflare quick tunnel (live URL).
 $root = Split-Path $PSScriptRoot -Parent
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$root\worker\.venv\Scripts\python.exe' '$root\worker\main.py'"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$root'; npm run dev"
+
+Write-Host "Building app..."
+Set-Location $root
+npm run build
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$root'; npm run start"
 
 if (-not (Test-Path "$root\cloudflared.exe")) {
   Write-Host "Downloading cloudflared..."

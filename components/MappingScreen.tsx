@@ -30,7 +30,11 @@ function QuestionCard({
 }) {
   return (
     <div
+      id={`qcard-${q.qid}`}
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => e.key === "Enter" && onSelect()}
       className={`flex w-full cursor-pointer flex-col gap-3 rounded-2xl bg-white p-3 transition-shadow ${
         selected ? "border-2 border-brand-light" : "border-2 border-transparent"
       }`}
@@ -125,6 +129,14 @@ export default function MappingScreen({ jobId, result }: { jobId: string; result
     scrollRef.current.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
   }, [highlights]);
 
+  const selectQuestion = (qid: string) => {
+    setShowUnmatched(false);
+    setSelectedQid(qid);
+    setExpanded((prev) => new Set(prev).add(qid));
+    // reverse navigation: bring the question card into view in the list
+    document.getElementById(`qcard-${qid}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+
   const toggleAll = () => {
     const next = !allExpanded;
     setAllExpanded(next);
@@ -210,9 +222,7 @@ export default function MappingScreen({ jobId, result }: { jobId: string; result
               selected={q.qid === selectedQid && !showUnmatched}
               expanded={expanded.has(q.qid)}
               onSelect={() => {
-                setShowUnmatched(false);
-                setSelectedQid(q.qid);
-                setExpanded((prev) => new Set(prev).add(q.qid));
+                selectQuestion(q.qid);
                 if (window.innerWidth < 1024) setMobilePane("answers");
               }}
               onToggle={() =>
@@ -309,8 +319,31 @@ export default function MappingScreen({ jobId, result }: { jobId: string; result
                     alt={`Answer sheet page ${p.index + 1}`}
                     width={p.width}
                     height={p.height}
+                    loading="lazy"
                     className="w-full rounded-md shadow-sm"
                   />
+                  {/* invisible hitboxes: click any answer region to select its question */}
+                  {result.questions.flatMap((q) =>
+                    q.qid === selectedQid
+                      ? []
+                      : q.highlights
+                          .filter((h) => h.page === p.index)
+                          .map((h, i) => (
+                            <button
+                              key={`${q.qid}-${i}`}
+                              title={`Q${q.label}`}
+                              aria-label={`Select question ${q.label}`}
+                              onClick={() => selectQuestion(q.qid)}
+                              className="absolute rounded-2xl border-2 border-transparent hover:border-brand-light/60 hover:bg-[rgba(255,141,54,0.06)]"
+                              style={{
+                                left: `${h.bbox[0] * 100}%`,
+                                top: `${h.bbox[1] * 100}%`,
+                                width: `${(h.bbox[2] - h.bbox[0]) * 100}%`,
+                                height: `${(h.bbox[3] - h.bbox[1]) * 100}%`,
+                              }}
+                            />
+                          ))
+                  )}
                   {highlights
                     .filter((h) => h.page === p.index)
                     .map((h, i) => (

@@ -105,9 +105,16 @@ def parse_grounding(raw: str):
                     "bbox": [x1, y1, x2, y2],
                 }
             )
+    # the model sometimes emits the same text twice with shifted boxes on
+    # sparse layouts — dropping consecutive duplicates removes the bad anchors
+    deduped = []
+    for r in regions:
+        if deduped and r["text"] and r["text"] == deduped[-1]["text"]:
+            continue
+        deduped.append(r)
     clean = REF_RE.sub("", raw)
     clean = re.sub(r"<\|.*?\|>", "", clean)
-    return clean.strip(), regions
+    return clean.strip(), deduped
 
 
 def render_pages(file_path: str, out_dir: str, max_pages: int):
@@ -156,6 +163,38 @@ def run_infer(image_path: str, out_dir: str, base_size=1024, image_size=640, cro
     if not isinstance(raw, str) or not raw:
         raise RuntimeError("model.infer produced no output")
     return raw
+
+
+class CropRequest(BaseModel):
+    job_id: str
+    kind: str
+    index: int
+    bbox: list[float]  # normalized x1,y1,x2,y2
+    name: str
+
+
+@app.post("/crop")
+def crop(req: CropRequest):
+    """Crop a region out of a rendered page (for vision grading of diagrams)."""
+    if not re.fullmatch(r"[\w-]+", req.name):
+        raise HTTPException(400, "bad name")
+    job_dir = os.path.join(JOBS_DIR, req.job_id, req.kind)
+    src = os.path.join(job_dir, f"page_{req.index}.png")
+    if not os.path.isfile(src):
+        raise HTTPException(400, f"page not rendered: {src}")
+    with Image.open(src) as im:
+        w, h = im.size
+        pad = 0.01
+        x1, y1, x2, y2 = req.bbox
+        box = (
+            int(max(0.0, x1 - pad) * w),
+            int(max(0.0, y1 - pad) * h),
+            int(min(1.0, x2 + pad) * w),
+            int(min(1.0, y2 + pad) * h),
+        )
+        out = os.path.join(job_dir, f"crop_{req.name}.png")
+        im.crop(box).save(out)
+    return {"path": out}
 
 
 @app.get("/health")

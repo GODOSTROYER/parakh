@@ -81,6 +81,14 @@ def qp():
         fontsize=12,
     )
     page.insert_text((500, y), "[2]", fontsize=12, fontname="hebo")
+    y += 44
+    page.insert_text((60, y), "8.", fontsize=12, fontname="hebo")
+    page.insert_textbox(
+        fitz.Rect(85, y - 12, 480, y + 30),
+        "Draw a labelled diagram of a plant cell showing the cell wall and nucleus.",
+        fontsize=12,
+    )
+    page.insert_text((500, y), "[3]", fontsize=12, fontname="hebo")
     doc.save(os.path.join(FIX, "sample_qp.pdf"))
     doc.close()
 
@@ -113,6 +121,17 @@ def answers():
 
     p2 = doc.new_page(width=W, height=H)
     hand(p2, (50, 60), "Ans 4 continued.  Two factors that increase the rate of transpiration are: 1. Higher temperature  2. Wind / air movement. Dry air also increases it.")
+    # Q8: an actual drawn diagram (rectangle cell wall, inner membrane, nucleus)
+    hand(p2, (50, 150), "Ans 8.  Diagram of a plant cell:")
+    ink = (0.1, 0.1, 0.35)
+    p2.draw_rect(fitz.Rect(120, 190, 380, 370), color=ink, width=1.5)
+    p2.draw_rect(fitz.Rect(132, 200, 368, 360), color=ink, width=0.8)
+    p2.draw_circle(fitz.Point(250, 280), 38, color=ink, width=1.2)
+    p2.draw_circle(fitz.Point(250, 280), 10, color=ink, width=0.8)
+    p2.draw_line(fitz.Point(120, 210), fitz.Point(70, 205), color=ink, width=0.8)
+    hand(p2, (30, 195), "cell wall", 12)
+    p2.draw_line(fitz.Point(288, 280), fitz.Point(420, 270), color=ink, width=0.8)
+    hand(p2, (422, 262), "nucleus", 12)
     doc.save(os.path.join(FIX, "sample_answers.pdf"))
     doc.close()
 
