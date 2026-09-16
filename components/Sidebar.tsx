@@ -5,6 +5,7 @@
 
 import { ClipboardCheck, History, Library, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import BrandMark from "./BrandMark";
 
 const NAV: { icon: LucideIcon; label: string; active?: boolean }[] = [
   { icon: ClipboardCheck, label: "Check Exam", active: true },
@@ -16,16 +17,14 @@ const NAV: { icon: LucideIcon; label: string; active?: boolean }[] = [
 export default function Sidebar(_props: { collapsed?: boolean }) {
   return (
     <aside className="hidden w-[240px] shrink-0 flex-col border-r border-border bg-surface lg:flex">
-      <div className="flex items-baseline gap-2.5 px-5 pb-6 pt-6">
-        <img
-          src="/parakh/brand/parakh.svg"
-          alt=""
-          className="size-8 self-center"
-        />
-        <span className="font-display text-[22px] italic leading-none text-text">
+      <div className="flex items-center gap-2.5 px-5 pb-6 pt-6">
+        <BrandMark size={32} />
+        <span className="font-display text-[23px] italic leading-none text-text">
           Parakh
         </span>
-        <span className="text-sm text-muted">परख</span>
+        <span className="font-devanagari text-[17px] leading-none text-saffron/80">
+          परख
+        </span>
       </div>
 
       <nav className="flex flex-col gap-1 px-3">

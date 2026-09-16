@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, Geist, Geist_Mono } from "next/font/google";
+import {
+  Instrument_Serif,
+  Instrument_Sans,
+  Geist_Mono,
+  Tiro_Devanagari_Hindi,
+} from "next/font/google";
 import "./globals.css";
 
 const instrument = Instrument_Serif({
@@ -9,9 +14,18 @@ const instrument = Instrument_Serif({
   variable: "--font-instrument",
 });
 
-const geist = Geist({
+// sibling of Instrument Serif — same optical DNA, modern humanist sans
+const instrumentSans = Instrument_Sans({
   subsets: ["latin"],
-  variable: "--font-geist",
+  variable: "--font-instrument-sans",
+});
+
+// elegant Devanagari serif with true italics, drawn to sit beside Latin serifs
+const tiro = Tiro_Devanagari_Hindi({
+  weight: "400",
+  style: ["normal", "italic"],
+  subsets: ["devanagari", "latin"],
+  variable: "--font-tiro",
 });
 
 const geistMono = Geist_Mono({
@@ -40,7 +54,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: CANONICAL_SCRIPT }} />
       </head>
       <body
-        className={`${instrument.variable} ${geist.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${instrument.variable} ${instrumentSans.variable} ${geistMono.variable} ${tiro.variable} font-sans antialiased`}
       >
         {children}
       </body>

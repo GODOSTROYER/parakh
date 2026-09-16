@@ -20,10 +20,11 @@
   --color-sky: #6cb6ff;
   --color-sky-tint: rgba(108, 182, 255, 0.12);
 
-  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-instrument), Georgia, "Times New Roman", serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo,
     monospace;
+  --font-devanagari: var(--font-tiro), "Noto Serif Devanagari", "Nirmala UI", serif;
 }
 
 :root {

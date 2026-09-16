@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ComponentType } from "react";
 import { FileText, PenLine, X } from "lucide-react";
+import BrandMark from "./BrandMark";
 
 export interface Picked {
   file: File;
@@ -131,13 +132,19 @@ export default function UploadScreen({
     <div className="enter-rise flex flex-1 flex-col items-center justify-center overflow-y-auto py-8">
       <div className="flex w-full max-w-2xl flex-col items-center gap-8">
         <div className="flex flex-col items-center gap-4 text-center">
-          <img src="/parakh/brand/parakh.svg" alt="" className="size-14" />
-          <h1 className="font-display text-[40px] leading-tight tracking-[-0.01em] text-text">
+          <BrandMark size={56} />
+          <p className="flex items-baseline gap-3">
+            <span className="font-devanagari text-[22px] leading-none text-saffron">परख</span>
+            <span className="font-mono text-xs tracking-[0.02em] text-faint">
+              /pə·rəkh/ · to assess, to discern
+            </span>
+          </p>
+          <h1 className="font-display text-[44px] leading-[1.05] tracking-[-0.015em] text-text">
             <em>Parakh</em> checks the whole exam
           </h1>
-          <p className="max-w-lg text-sm text-muted">
-            परख — upload the question paper and the student&apos;s answer sheet;
-            every answer found, highlighted and graded.
+          <p className="max-w-lg text-[15px] leading-relaxed text-muted">
+            Upload the question paper and the student&apos;s answer sheet — every
+            answer found, highlighted and graded.
           </p>
         </div>
 
