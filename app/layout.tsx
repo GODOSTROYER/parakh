@@ -8,9 +8,9 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "VedaAI — Exam Answer Mapping",
+  title: "Parakh — AI Exam Assessment",
   description:
-    "Upload a question paper and a student answer sheet; extract questions, map answers, and grade with AI.",
+    "परख · Upload a question paper and a student's answer sheet — Parakh extracts every question, finds and highlights each answer on the sheet, and grades it with AI feedback.",
 };
 
 export default function RootLayout({

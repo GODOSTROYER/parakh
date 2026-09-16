@@ -1,107 +1,83 @@
-# VedaAI — AI Assessment Extraction & Answer Mapping
+# Parakh · परख — AI Exam Assessment
 
-Upload a **question paper** and a student's **handwritten answer sheet**. The app extracts every question, finds each answer on the sheet, **highlights its exact region**, grades it, and gives per-question and overall AI feedback — so a teacher can instantly see *which question was answered, where the answer is, and what was left unanswered*.
+**परख** (Hindi: *to assess, to discern*) checks a student's exam in one upload: give it a
+**question paper** and a **handwritten answer sheet**, and it extracts every question, finds
+each answer on the sheet, **highlights the exact ink region**, grades it, and writes
+per-question and overall feedback — so a teacher instantly sees *what was answered, where,
+and what was missed*.
 
-![Upload screen](docs/upload.png)
+![Upload](docs/upload.png)
 
-![Question–answer mapping screen](docs/mapping.png)
+![Mapping](docs/mapping.png)
 
-## How it works
+## How it works — fully serverless
 
 ```
-Upload (PDF/images, ≤10MB each)
-   │
-   ▼
-DeepSeek-OCR-2  — local GPU worker (FastAPI)
-   PDF → page PNGs (PyMuPDF @150dpi)
-   per page: markdown + text regions with bounding boxes
-   (grounding <|ref|>/<|det|> tokens, coords normalized 0–999)
-   │
-   ▼
-GPT-5.6 Luna  — via OpenAI Codex CLI (`codex exec --output-schema`)
-   call 1: structure questions (printed order, sub-parts split, marks)
-   call 2: map answer regions → questions + grade + feedback + summary
-   │
-   ▼
-Next.js UI — side-by-side questions ↔ answer sheet,
-   click a question → its exact region(s) highlighted on the sheet
+Browser (pdf.js)                        Vercel functions (Gemini)
+─────────────────                       ─────────────────────────
+PDF → page JPEGs + text layer   ──►     /api/questions
+                                          question paper text (or page images)
+                                          → every question, printed order,
+                                            sub-parts split, marks, OR-groups
+                                        /api/grade
+answer page JPEGs               ──►       one multimodal call: reads the
+                                          handwriting, maps answers to
+                                          questions with bounding boxes,
+                                          grades (diagrams included), feedback
+results + highlights            ◄──       ← structured JSON (response schema)
 ```
 
-### Question extraction
-DeepSeek-OCR-2 converts each question-paper page to layout-aware markdown; GPT-5.6 Luna then structures it against a strict JSON schema. Printed numbering is preserved exactly, and labelled sub-parts become separate entries — `11 (a)` and `11 (b)` are two questions. Marks are read from the paper (estimated by question type when not printed).
+- Pages are rendered **in the browser** (pdf.js) — the backend only ever receives compact
+  JPEGs, there is no server-side storage, no database, no GPU.
+- **Gemini** reads the handwriting and returns tight bounding boxes (`[ymin,xmin,ymax,xmax]`
+  0–1000) per answer, so highlights follow the exact ink at any zoom.
+- **Free-tier key rotation**: `GEMINI_API_KEYS` takes any number of comma-separated keys;
+  every call round-robins and advances across keys × models (`gemini-3.5-flash` →
+  `gemini-3.5-flash-lite`) on quota errors, pooling several free quotas into one.
 
-### Answer mapping
-Every OCR region on the answer sheet gets an id (`p{page}_r{idx}`). The mapper assigns region ids to each question using the student's own numbering ("Ans 2.", "5 (b)…") as the primary signal and content similarity as fallback. It handles:
+### Handles the messy reality of exam scripts
 
-| Edge case | Behaviour |
+| Case | Behaviour |
 |---|---|
-| Answers out of order | Mapped by label/content, not position |
-| Answer spans multiple regions/pages | All regions included; one highlight per page |
-| Unanswered question | Flagged, scored 0, listed in red |
-| Writing that matches no question | Shown under "Unmatched answers", highlightable |
-| Name/roll-number headers | Ignored as answers |
-
-### Highlighting
-DeepSeek's normalized boxes (0–999 → 0–1) are unioned per page per question and drawn as overlays on the rendered page images — the highlight follows the exact ink region at any zoom level.
-
-### Grading
-Score per question (capped at max marks), 1–2 sentences of feedback addressed to the student, plus an overall teacher summary with the total. OCR noise on handwriting is explicitly not penalized when intent is clear.
-
-- **Marking scheme (optional)**: a third upload slot accepts the teacher's marking scheme; grading then follows its criteria instead of general judgment.
-- **Diagram vision pass**: questions that ask to draw/label/sketch are re-graded from cropped images of the student's actual answer region (GPT-5.6 Luna vision), since text OCR can't see drawings.
-- **OR / optional questions**: both alternatives are extracted; the skipped one shows "OR — skipped" and the total counts the choice-set once.
+| Sub-parts (`11 (a)`, `Q1 part 2`, `1 (ii)`, `2.1`) | Separate entries, printed numbering preserved |
+| OR / optional questions | Both alternatives extracted; skipped one shows "OR — skipped"; the choice-set counts once in the total |
+| Answers out of order | Mapped by the student's own numbering, content as fallback |
+| Answer spans pages | One highlight per page, auto-scroll to the first |
+| Unanswered questions | Flagged red, scored 0 |
+| Stray writing | Listed under "Unmatched answers", highlightable |
+| Diagrams | Graded visually (structure + labels) |
+| Marking scheme (optional third upload) | Grading follows its criteria |
 
 ## Stack
 
-| Layer | Tech |
-|---|---|
-| Frontend / orchestration | Next.js 15 (App Router), Tailwind CSS v4, in-memory job store |
-| OCR | [DeepSeek-OCR-2](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2) (3B, Apache-2.0), bf16 on a single consumer GPU (RTX 4060 8GB), FastAPI worker |
-| LLM | GPT-5.6 Luna through the OpenAI Codex CLI, ChatGPT OAuth (`codex login`) — structured output via `--output-schema`, no API key needed |
-| PDF handling | PyMuPDF (render + fixtures) |
+Next.js 15 · Tailwind v4 · pdfjs-dist (client-side rendering) · Gemini API with structured
+output · deployed on Vercel. No auth, no database — results live in the browser session.
 
-The UI implements the provided Figma design.
+> The original local-GPU variant of this project (DeepSeek-OCR-2 on an RTX 4060 +
+> GPT-5.6 Luna via Codex CLI) is preserved at the `vedaai-deepseek-submission` tag.
 
 ## Run locally
 
-Prereqs: Node 20+, Python 3.12, an NVIDIA GPU with ~7GB free VRAM, and the Codex CLI logged in once (`npm i -g @openai/codex && codex login`).
-
-```powershell
-# one-time setup
+```bash
 npm install
-python -m venv worker/.venv
-worker/.venv/Scripts/pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
-worker/.venv/Scripts/pip install -r worker/requirements.txt
-
-# model weights (~6.4GB) into worker/model
-curl.exe -L --retry 10 -C - -o worker/model/model-00001-of-000001.safetensors "https://huggingface.co/deepseek-ai/DeepSeek-OCR-2/resolve/main/model-00001-of-000001.safetensors"
-# plus the small config/tokenizer files from the same repo (or let the worker
-# pull the whole repo from the Hub by deleting worker/model)
-
-# every time — starts worker + app + public tunnel (live URL)
-./scripts/start-all.ps1
+echo GEMINI_API_KEYS=key1,key2 > .env.local
+npm run dev
 ```
 
-The tunnel prints an `https://*.trycloudflare.com` URL — that's the live URL. App alone: `npm run dev` → http://localhost:3000.
+Sample files in `fixtures/` (synthetic paper exercising every edge case) and `Test Data/`.
 
-Sample files to try are in `fixtures/` (synthetic, exercises every edge case) and `Test Data/` (a real ML exam). Regenerate fixtures with `worker/.venv/Scripts/python worker/make_fixtures.py`.
-
-## Configuration
-
-| Env var | Default | Purpose |
+| Env var | Default | |
 |---|---|---|
-| `WORKER_URL` | `http://127.0.0.1:8100` | OCR worker base URL |
-| `CODEX_MODEL` | `gpt-5.6-luna` | Codex model slug |
-| `RENDER_DPI` | `150` | PDF render DPI |
-| `ATTN_IMPL` | `eager` | Attention implementation (no flash-attn required) |
-| `DEMO_KEY` | unset | If set, uploads require `?key=<value>` in the page URL (protects a public tunnel) |
-| `CODEX_TIMEOUT_MS` | `300000` | Per-LLM-call timeout (one retry on failure) |
+| `GEMINI_API_KEYS` | — (required) | Comma-separated Gemini API keys, rotated per call |
+| `GEMINI_MODELS` | `gemini-3.5-flash,gemini-3.5-flash-lite` | Model ladder, first is primary |
 
-## Assumptions & limitations
+## Limitations
 
-- One answer sheet per run; job state is in-memory with completed results persisted to disk (survive restarts; swept after 24h). No auth per assignment scope — set `DEMO_KEY` to gate a public tunnel.
-- Digital question papers use the PDF text layer (exact); **scanned** question papers fall back to OCR and inherit its accuracy.
-- OCR quality on very messy handwriting bounds mapping quality; the grader is told not to penalize OCR noise when intent is clear. A failed page degrades (skipped with a console warning) rather than failing the run.
-- Marks not printed on the paper are estimated from question type.
-- The GPU worker processes one page at a time (~35–80s/page on an RTX 4060); a second upload queues behind the first.
-- The live URL requires the local GPU machine to be running; a quick tunnel's URL changes on restart.
+- Free-tier quotas bound throughput; heavy use rotates through keys and falls back to
+  flash-lite before failing loudly.
+- Results are per-session (refresh clears them) — by design, nothing is stored.
+- Max 15 pages per document, ~10MB per file.
+
+---
+
+Built by [Arnav Bule](https://www.arnavbule.in).

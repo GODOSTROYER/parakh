@@ -156,9 +156,9 @@ export default function UploadScreen({
             className="absolute left-1/2 top-[15px] size-[108px] -translate-x-1/2"
           />
           <img
-            src="/figma/mascot.png"
+            src="/brand/parakh.svg"
             alt=""
-            className="absolute left-[30px] top-[11px] h-[97px] w-[79px] rounded-[53px] object-cover"
+            className="absolute left-1/2 top-1/2 size-[62px] -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_6px_16px_rgba(252,94,36,0.35)]"
           />
           {[
             { src: "/figma/orbit-task.svg", cls: "left-[12px] top-[45px]" },
@@ -194,6 +194,23 @@ export default function UploadScreen({
               onClear={() => setAns(null)}
             />
           </div>
+          <button
+            onClick={async () => {
+              const load = async (url: string, name: string) => {
+                const blob = await fetch(url).then((r) => r.blob());
+                return new File([blob], name, { type: "application/pdf" });
+              };
+              const [q, a] = await Promise.all([
+                load("/samples/sample_qp.pdf", "sample_question_paper.pdf"),
+                load("/samples/sample_answers.pdf", "sample_answer_sheet.pdf"),
+              ]);
+              await pick(setQp)(q);
+              await pick(setAns)(a);
+            }}
+            className="mt-2 w-full text-center text-sm font-medium text-brand underline-offset-2 hover:underline"
+          >
+            No files handy? Try the sample exam →
+          </button>
           {showScheme ? (
             <div className="mt-3 h-[120px]">
               <UploadCard
@@ -226,12 +243,15 @@ export default function UploadScreen({
           <img src="/figma/arrow-right.svg" alt="" className="size-5" />
         </button>
         {error ? (
-          <p className="text-sm font-medium text-danger">{error}</p>
+          <p className="max-w-[560px] text-center text-sm font-medium text-danger">{error}</p>
         ) : (
           <p className="text-sm text-[rgba(94,94,94,0.8)]">
-            Once both files are uploaded, you&rsquo;ll able to map answers with questions
+            Once both files are uploaded, Parakh maps every answer to its question
           </p>
         )}
+        <p className="text-xs text-[rgba(94,94,94,0.5)]">
+          परख · every answer, found and graded
+        </p>
       </div>
     </div>
   );

@@ -7,7 +7,6 @@ mkdirSync("docs", { recursive: true });
 const browser = await puppeteer.launch({
   executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   headless: true,
-  args: ["--force-device-scale-factor=1.5"],
 });
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 810, deviceScaleFactor: 1.5 });
@@ -15,13 +14,28 @@ await page.setViewport({ width: 1440, height: 810, deviceScaleFactor: 1.5 });
 await page.goto("http://localhost:3000", { waitUntil: "networkidle0" });
 await page.screenshot({ path: "docs/upload.png" });
 
-const jobId = process.argv[2] ?? "cad1c9b6";
-await page.goto(`http://localhost:3000/?job=${jobId}`, { waitUntil: "networkidle0" });
-await new Promise((r) => setTimeout(r, 2500));
-// select the second question so the highlight shows
+// run the sample exam end-to-end
 await page.evaluate(() => {
-  const cards = document.querySelectorAll("main .cursor-pointer");
-  cards[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  [...document.querySelectorAll("button")]
+    .find((b) => b.textContent.includes("Try the sample exam"))
+    ?.click();
+});
+await page.waitForFunction(
+  () => document.body.textContent.includes("sample_answer_sheet"),
+  { timeout: 30000 }
+);
+await page.evaluate(() => {
+  [...document.querySelectorAll("button")]
+    .find((b) => b.textContent.includes("Start Mapping"))
+    ?.click();
+});
+await page.waitForFunction(
+  () => document.body.textContent.includes("Grading Summary"),
+  { timeout: 180000, polling: 1000 }
+);
+// select Q2 so a highlight is visible
+await page.evaluate(() => {
+  document.getElementById("qcard-q2")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 });
 await new Promise((r) => setTimeout(r, 1500));
 await page.screenshot({ path: "docs/mapping.png" });

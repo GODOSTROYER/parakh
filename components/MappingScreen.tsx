@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Minus, Plus } from "lucide-react";
 import type { JobResult, QuestionResult } from "@/lib/types";
+import type { RenderedPage } from "@/lib/pdf-client";
 
 const ZOOMS = [50, 75, 100, 125, 150, 200];
 
@@ -92,7 +93,7 @@ function QuestionCard({
   );
 }
 
-export default function MappingScreen({ jobId, result }: { jobId: string; result: JobResult }) {
+export default function MappingScreen({ result, pages }: { result: JobResult; pages: RenderedPage[] }) {
   const [selectedQid, setSelectedQid] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [allExpanded, setAllExpanded] = useState(false);
@@ -315,7 +316,7 @@ export default function MappingScreen({ jobId, result }: { jobId: string; result
                   className="relative w-full"
                 >
                   <img
-                    src={`/api/jobs/${jobId}/pages/${p.index}`}
+                    src={pages[p.index]?.dataUrl}
                     alt={`Answer sheet page ${p.index + 1}`}
                     width={p.width}
                     height={p.height}
