@@ -29,6 +29,8 @@ await page.evaluate(() => {
     .find((b) => /run the check|start mapping/i.test(b.textContent))
     ?.click();
 });
+await new Promise((r) => setTimeout(r, 4000));
+await page.screenshot({ path: "docs/loading.png" });
 await page.waitForFunction(
   () => /accounted for|Grading Summary/i.test(document.body.textContent),
   { timeout: 180000, polling: 1000 }
@@ -41,4 +43,4 @@ await new Promise((r) => setTimeout(r, 1500));
 await page.screenshot({ path: "docs/mapping.png" });
 
 await browser.close();
-console.log("wrote docs/upload.png, docs/mapping.png");
+console.log("wrote docs/upload.png, docs/loading.png, docs/mapping.png");
