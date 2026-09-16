@@ -10,3 +10,6 @@ worker/__pycache__/
 *.pyc
 .env*.local
 cloudflared.exe
+
+.vercel
+.env*

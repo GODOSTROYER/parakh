@@ -1,0 +1,7 @@
+worker/
+.jobs/
+docs/
+fixtures/
+Test Data/
+cloudflared.exe
+deep-research-report.md
