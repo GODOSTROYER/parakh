@@ -1,20 +1,35 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink: #303030;
-  --color-ink-dark: #2b2b2b;
-  --color-brand: #ff5623;
-  --color-brand-light: #ff8d36;
-  --color-muted: #5e5e5e;
-  --color-success: #34ac15;
-  --color-success-bg: rgba(69, 181, 41, 0.1);
-  --color-warn: #e3600f;
-  --color-warn-bg: rgba(255, 153, 0, 0.1);
-  --color-danger: #c0350a;
-  --color-danger-bg: #ffe9e2;
-  --color-offwhite: #f6f6f6;
-  --color-offwhite-2: #f0f0f0;
-  --font-sans: var(--font-bricolage), sans-serif;
+  --color-bg: #0b0c0f;
+  --color-surface: #12141a;
+  --color-surface-2: #191c24;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-text: #ecedef;
+  --color-muted: #8b8f98;
+  --color-faint: #5b5f69;
+  --color-saffron: #ff7a2f;
+  --color-saffron-tint: rgba(255, 122, 47, 0.12);
+  --color-green: #1ed760;
+  --color-green-tint: rgba(30, 215, 96, 0.12);
+  --color-amber: #f5b841;
+  --color-amber-tint: rgba(245, 184, 65, 0.12);
+  --color-rose: #ff5c77;
+  --color-rose-tint: rgba(255, 92, 119, 0.12);
+  --color-sky: #6cb6ff;
+  --color-sky-tint: rgba(108, 182, 255, 0.12);
+
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-instrument), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+}
+
+:root {
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 12px;
 }
 
 html,
@@ -23,20 +38,87 @@ body {
 }
 
 body {
-  background: linear-gradient(180deg, #f5f5f5 0%, #e9e5e5 100%);
-  color: #303030;
-  letter-spacing: -0.04em;
+  position: relative;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-/* Figma "Extracting..." shimmer text */
+/* Subtle SVG grain over the page ground */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* Eyebrow labels: mono, small caps feel */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* Phase / page enter: fade + 8px rise */
+@keyframes enter-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.enter-rise {
+  animation: enter-rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Soft pulsing dot (loading timeline active step) */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* Thin indeterminate progress bar (translate the inner bar across its track) */
+@keyframes indeterminate-bar {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.indeterminate-bar {
+  animation: indeterminate-bar 1.4s linear infinite;
+}
+
+/* Shimmer text, adapted to dark */
 .shimmer-text {
   background-image: linear-gradient(
     90deg,
-    #303030 20%,
-    #606060 40%,
-    #808080 50%,
-    #606060 60%,
-    #303030 80%
+    #ecedef 20%,
+    #8b8f98 40%,
+    #8b8f98 60%,
+    #ecedef 80%
   );
   background-size: 200% 100%;
   background-clip: text;
@@ -54,30 +136,39 @@ body {
   }
 }
 
-@keyframes loader-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.92);
-    opacity: 0.8;
-  }
-}
-
-.loader-sparkle {
-  animation: loader-pulse 1.6s ease-in-out infinite;
-}
-
+/* Thin scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cecece;
+  background: var(--color-faint);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-saffron);
+  outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+  background: rgba(255, 122, 47, 0.28);
+  color: var(--color-text);
+}
+
+/* Reduced motion: disable animation globally */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

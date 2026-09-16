@@ -23,7 +23,7 @@ const JPEG_Q = 0.78;
 async function pdfjs() {
   const lib = await import("pdfjs-dist");
   // served from public/ — bundler-emitted worker URLs 404 in some setups
-  lib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+  lib.GlobalWorkerOptions.workerSrc = "/parakh/pdf.worker.min.mjs";
   return lib;
 }
 

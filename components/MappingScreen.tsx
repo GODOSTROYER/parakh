@@ -8,15 +8,24 @@ import type { RenderedPage } from "@/lib/pdf-client";
 const ZOOMS = [50, 75, 100, 125, 150, 200];
 
 function scorePill(q: QuestionResult) {
-  if (q.skippedOr) return "bg-offwhite text-muted";
+  if (q.skippedOr) return "bg-sky-tint text-sky";
   const ratio = q.maxMarks > 0 ? q.score / q.maxMarks : 0;
-  if (!q.answered || q.score === 0)
-    return "bg-danger-bg text-danger";
-  if (ratio >= 0.8) return "bg-success-bg text-success";
-  return "bg-warn-bg text-warn";
+  if (!q.answered || q.score === 0) return "bg-rose-tint text-rose";
+  if (ratio >= 0.8) return "bg-green-tint text-green";
+  return "bg-amber-tint text-amber";
 }
 
-function QuestionCard({
+function pctChip(pct: number) {
+  if (pct >= 80) return "bg-green-tint text-green";
+  if (pct >= 50) return "bg-amber-tint text-amber";
+  return "bg-rose-tint text-rose";
+}
+
+function fmt(n: number) {
+  return n % 1 === 0 ? n : n.toFixed(1);
+}
+
+function QuestionRow({
   q,
   selected,
   expanded,
@@ -36,34 +45,27 @@ function QuestionCard({
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => e.key === "Enter" && onSelect()}
-      className={`flex w-full cursor-pointer flex-col gap-3 rounded-2xl bg-white p-3 transition-shadow ${
-        selected ? "border-2 border-brand-light" : "border-2 border-transparent"
+      className={`flex w-full cursor-pointer flex-col gap-3 px-4 py-3.5 transition-colors duration-120 hover:bg-surface-2 ${
+        selected
+          ? "bg-surface-2 shadow-[inset_2px_0_0_var(--color-saffron)]"
+          : ""
       }`}
     >
-      <div className="flex w-full items-center gap-3">
-        <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={`flex size-8 items-center justify-center rounded-full border-2 border-white/25 text-lg font-extrabold text-white ${
-              selected
-                ? "bg-brand drop-shadow-[0px_8px_4.4px_rgba(255,121,80,0.1)]"
-                : "bg-[rgba(43,43,43,0.8)] shadow-[0px_4px_16px_rgba(67,67,67,0.1)]"
-            }`}
-          >
-            {q.number}
-          </span>
-          {q.part && (
-            <span className="flex size-8 items-center justify-center rounded-full bg-offwhite text-base font-bold text-ink">
-              {q.part}.
-            </span>
-          )}
-        </div>
-        <p className="min-w-0 flex-1 text-base leading-[1.4] text-ink">{q.text}</p>
-        <span
-          className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-base font-bold ${scorePill(q)}`}
+      <div className="flex w-full items-start gap-3">
+        <span className="mt-0.5 min-w-[44px] shrink-0 font-mono text-xs text-faint">
+          Q{q.label.replace(/\s+/g, "")}
+        </span>
+        <p
+          className={`min-w-0 flex-1 text-sm leading-normal text-text ${
+            expanded ? "" : "line-clamp-2"
+          }`}
         >
-          {q.skippedOr
-            ? "OR — skipped"
-            : `${q.score % 1 === 0 ? q.score : q.score.toFixed(1)} / ${q.maxMarks}`}
+          {q.text}
+        </p>
+        <span
+          className={`shrink-0 whitespace-nowrap rounded-sm px-2 py-0.5 font-mono text-xs ${scorePill(q)}`}
+        >
+          {q.skippedOr ? "OR · skipped" : `${fmt(q.score)} / ${q.maxMarks}`}
         </span>
         <button
           aria-label={expanded ? "Collapse" : "Expand"}
@@ -71,21 +73,17 @@ function QuestionCard({
             e.stopPropagation();
             onToggle();
           }}
-          className="shrink-0 rounded-lg bg-offwhite p-1"
+          className="shrink-0 rounded-sm p-1 text-muted transition-colors duration-120 hover:text-text"
         >
-          {expanded ? (
-            <ChevronUp className="size-5 text-ink" />
-          ) : (
-            <ChevronDown className="size-5 text-ink" />
-          )}
+          {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
         </button>
       </div>
       {expanded && (
-        <div className="flex flex-col gap-2.5 rounded-2xl bg-offwhite px-6 py-4">
-          <p className="text-base font-bold text-ink">AI Feedback</p>
-          <p className="text-sm leading-[1.4] text-ink">{q.feedback}</p>
+        <div className="ml-[56px] flex flex-col gap-2 rounded-[8px] bg-surface-2 p-4">
+          <p className="eyebrow">AI FEEDBACK</p>
+          <p className="text-sm leading-normal text-text">{q.feedback}</p>
           {!q.answered && !q.skippedOr && (
-            <p className="text-sm font-bold text-danger">Not answered</p>
+            <p className="font-mono text-xs text-rose">not answered</p>
           )}
         </div>
       )}
@@ -93,7 +91,15 @@ function QuestionCard({
   );
 }
 
-export default function MappingScreen({ result, pages }: { result: JobResult; pages: RenderedPage[] }) {
+export default function MappingScreen({
+  result,
+  pages,
+  onReset,
+}: {
+  result: JobResult;
+  pages: RenderedPage[];
+  onReset?: () => void;
+}) {
   const [selectedQid, setSelectedQid] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [allExpanded, setAllExpanded] = useState(false);
@@ -167,15 +173,33 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
     : 0;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="enter-rise flex min-h-0 flex-1 flex-col gap-5">
+      {/* header */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1.5">
+          <p className="eyebrow">ASSESSMENT COMPLETE</p>
+          <h1 className="font-display text-[32px] leading-tight tracking-[-0.01em] text-text">
+            Every answer, accounted for.
+          </h1>
+        </div>
+        {onReset && (
+          <button
+            onClick={onReset}
+            className="shrink-0 rounded-[8px] border border-border px-4 py-2 text-sm text-muted transition-colors duration-120 hover:bg-surface-2 hover:text-text"
+          >
+            Check another exam
+          </button>
+        )}
+      </div>
+
       {/* mobile pane toggle */}
-      <div className="flex gap-2 rounded-full bg-white/60 p-1 lg:hidden">
+      <div className="flex gap-1 rounded-[8px] border border-border bg-surface p-1 lg:hidden">
         {(["questions", "answers"] as const).map((p) => (
           <button
             key={p}
             onClick={() => setMobilePane(p)}
-            className={`flex-1 rounded-full px-4 py-2 text-sm font-medium capitalize ${
-              mobilePane === p ? "bg-ink text-white" : "text-ink"
+            className={`flex-1 rounded-sm px-4 py-2 font-mono text-xs transition-colors duration-120 ${
+              mobilePane === p ? "bg-surface-2 text-text" : "text-muted hover:text-text"
             }`}
           >
             {p === "questions" ? "Questions" : "Answer Sheet"}
@@ -183,59 +207,62 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
         ))}
       </div>
 
-      <div className="flex min-h-0 flex-1 items-start gap-3">
-        {/* left: questions */}
+      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+        {/* left: summary + questions */}
         <div
           className={`${
             mobilePane === "questions" ? "flex" : "hidden"
-          } h-full w-full min-w-0 flex-col gap-4 overflow-y-auto rounded-[20px] bg-white/50 p-4 lg:flex lg:w-[46%] lg:shrink-0`}
+          } h-full min-h-0 w-full min-w-0 flex-col gap-4 overflow-y-auto pr-1 lg:flex`}
         >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-base font-bold text-ink">
-              Extracted Questions (from question paper)
+          {/* summary */}
+          <div className="shrink-0 rounded-lg border border-border bg-surface p-5">
+            <div className="flex items-baseline gap-3">
+              <p className="font-display text-[56px] leading-none tracking-[-0.01em] text-text">
+                {fmt(result.overall.score)}{" "}
+                <span className="text-muted">/ {result.overall.maxScore}</span>
+              </p>
+              <span className={`rounded-sm px-2 py-0.5 font-mono text-xs ${pctChip(pct)}`}>
+                {pct}%
+              </span>
+            </div>
+            <p className="mt-3 max-w-prose text-sm leading-normal text-muted">
+              {result.overall.summary}
             </p>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-between gap-2">
+            <p className="eyebrow">QUESTIONS</p>
             <button
               onClick={toggleAll}
-              className="shrink-0 rounded-full bg-white py-3 pl-4 pr-5 text-sm font-medium text-[#181818] hover:bg-offwhite"
+              className="shrink-0 font-mono text-xs text-muted transition-colors duration-120 hover:text-text"
             >
-              {allExpanded ? "Collapse All" : "Expand All"}
+              {allExpanded ? "Collapse all" : "Expand all"}
             </button>
           </div>
 
-          {/* grading summary */}
-          <div className="flex flex-col gap-2 rounded-2xl bg-ink p-4 text-white">
-            <div className="flex items-center justify-between">
-              <p className="text-base font-bold">Grading Summary</p>
-              <span className="rounded-full bg-white/10 px-3 py-1 text-base font-bold">
-                {result.overall.score % 1 === 0
-                  ? result.overall.score
-                  : result.overall.score.toFixed(1)}{" "}
-                / {result.overall.maxScore} · {pct}%
-              </span>
-            </div>
-            <p className="text-sm leading-[1.4] text-white/80">{result.overall.summary}</p>
+          {/* question list: one bordered region, hairline-divided rows */}
+          <div className="divide-y divide-border rounded-lg border border-border bg-surface">
+            {result.questions.map((q) => (
+              <QuestionRow
+                key={q.qid}
+                q={q}
+                selected={q.qid === selectedQid && !showUnmatched}
+                expanded={expanded.has(q.qid)}
+                onSelect={() => {
+                  selectQuestion(q.qid);
+                  if (window.innerWidth < 1024) setMobilePane("answers");
+                }}
+                onToggle={() =>
+                  setExpanded((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(q.qid)) next.delete(q.qid);
+                    else next.add(q.qid);
+                    return next;
+                  })
+                }
+              />
+            ))}
           </div>
-
-          {result.questions.map((q) => (
-            <QuestionCard
-              key={q.qid}
-              q={q}
-              selected={q.qid === selectedQid && !showUnmatched}
-              expanded={expanded.has(q.qid)}
-              onSelect={() => {
-                selectQuestion(q.qid);
-                if (window.innerWidth < 1024) setMobilePane("answers");
-              }}
-              onToggle={() =>
-                setExpanded((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(q.qid)) next.delete(q.qid);
-                  else next.add(q.qid);
-                  return next;
-                })
-              }
-            />
-          ))}
 
           {result.unmatched.length > 0 && (
             <div
@@ -243,19 +270,22 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
                 setShowUnmatched(true);
                 setSelectedQid(null);
               }}
-              className={`flex cursor-pointer flex-col gap-2 rounded-2xl bg-white p-3 ${
-                showUnmatched ? "border-2 border-warn" : "border-2 border-transparent"
+              className={`flex cursor-pointer flex-col gap-2 rounded-lg border bg-surface p-4 transition-colors duration-120 ${
+                showUnmatched ? "border-amber" : "border-amber/40 hover:border-amber/70"
               }`}
             >
-              <p className="text-base font-bold text-warn">
-                Unmatched answers ({result.unmatched.length})
+              <p className="font-display text-lg italic text-amber">
+                Stray writing{" "}
+                <span className="font-mono text-xs not-italic text-muted">
+                  ({result.unmatched.length})
+                </span>
               </p>
               {result.unmatched.map((u, i) => (
-                <p key={i} className="text-sm text-ink">
+                <p key={i} className="text-sm leading-normal text-text">
                   • {u.note}
                 </p>
               ))}
-              <p className="text-xs text-muted">
+              <p className="text-xs text-faint">
                 Writing on the sheet that doesn&rsquo;t belong to any question — click to
                 highlight.
               </p>
@@ -267,19 +297,21 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
         <div
           className={`${
             mobilePane === "answers" ? "flex" : "hidden"
-          } h-full w-full min-w-0 flex-1 flex-col overflow-clip rounded-[20px] border-[1.25px] border-black/10 bg-white lg:flex`}
+          } h-full min-h-0 w-full min-w-0 flex-col overflow-clip rounded-lg border border-border lg:flex`}
         >
-          <div className="flex h-16 shrink-0 items-center justify-between border-b-[1.25px] border-black/10 bg-ink px-4 py-3 sm:px-6">
-            <p className="text-base font-bold text-white/80">Answer Sheet</p>
+          {/* chrome bar */}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4 py-2.5">
+            <p className="font-mono text-[13px] text-muted">answer sheet</p>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2">
+              <div className="flex items-center rounded-[8px] border border-border">
                 <button
                   aria-label="Zoom out"
                   onClick={() => setZoom(ZOOMS[Math.max(0, ZOOMS.indexOf(zoom) - 1)])}
+                  className="p-1.5 text-muted transition-colors duration-120 hover:text-text"
                 >
-                  <Minus className="size-4 text-white" />
+                  <Minus className="size-3.5" />
                 </button>
-                <span className="min-w-[42px] text-center text-sm font-bold text-white">
+                <span className="min-w-[46px] border-x border-border px-1 py-1 text-center font-mono text-xs text-text">
                   {zoom}%
                 </span>
                 <button
@@ -287,26 +319,38 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
                   onClick={() =>
                     setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + 1)])
                   }
+                  className="p-1.5 text-muted transition-colors duration-120 hover:text-text"
                 >
-                  <Plus className="size-4 text-white" />
+                  <Plus className="size-3.5" />
                 </button>
               </div>
-              <div className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2">
-                <button aria-label="Previous page" onClick={() => goToPage(page - 1)}>
-                  <ChevronLeft className="size-4 text-white" />
+              <div className="flex items-center rounded-[8px] border border-border">
+                <button
+                  aria-label="Previous page"
+                  onClick={() => goToPage(page - 1)}
+                  className="p-1.5 text-muted transition-colors duration-120 hover:text-text"
+                >
+                  <ChevronLeft className="size-3.5" />
                 </button>
-                <span className="whitespace-nowrap text-sm font-bold text-white">
-                  Page {page + 1} of {nPages}
+                <span className="whitespace-nowrap border-x border-border px-2 py-1 font-mono text-xs text-text">
+                  page {page + 1} / {nPages}
                 </span>
-                <button aria-label="Next page" onClick={() => goToPage(page + 1)}>
-                  <ChevronRight className="size-4 text-white" />
+                <button
+                  aria-label="Next page"
+                  onClick={() => goToPage(page + 1)}
+                  className="p-1.5 text-muted transition-colors duration-120 hover:text-text"
+                >
+                  <ChevronRight className="size-3.5" />
                 </button>
               </div>
             </div>
           </div>
 
-          <div ref={scrollRef} onScroll={onSheetScroll} className="relative flex-1 overflow-auto">
-            <div style={{ width: `${zoom}%`, minWidth: zoom > 100 ? `${zoom}%` : undefined }} className="mx-auto flex flex-col gap-4 px-2.5 py-4">
+          <div ref={scrollRef} onScroll={onSheetScroll} className="relative flex-1 overflow-auto bg-bg">
+            <div
+              style={{ width: `${zoom}%`, minWidth: zoom > 100 ? `${zoom}%` : undefined }}
+              className="mx-auto flex flex-col gap-4 px-2.5 py-4"
+            >
               {result.answerPages.map((p) => (
                 <div
                   key={p.index}
@@ -321,7 +365,7 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
                     width={p.width}
                     height={p.height}
                     loading="lazy"
-                    className="w-full rounded-md shadow-sm"
+                    className="w-full rounded-sm border border-border"
                   />
                   {/* invisible hitboxes: click any answer region to select its question */}
                   {result.questions.flatMap((q) =>
@@ -335,7 +379,7 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
                               title={`Q${q.label}`}
                               aria-label={`Select question ${q.label}`}
                               onClick={() => selectQuestion(q.qid)}
-                              className="absolute rounded-2xl border-2 border-transparent hover:border-brand-light/60 hover:bg-[rgba(255,141,54,0.06)]"
+                              className="absolute rounded-sm border-2 border-transparent transition-colors duration-120 hover:border-saffron/40 hover:bg-saffron-tint"
                               style={{
                                 left: `${h.bbox[0] * 100}%`,
                                 top: `${h.bbox[1] * 100}%`,
@@ -350,10 +394,10 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
                     .map((h, i) => (
                       <div
                         key={i}
-                        className={`absolute rounded-2xl border-2 shadow-[0_0_0_1.5px_white] ${
+                        className={`absolute rounded-sm border-2 ${
                           h.tone === "success"
-                            ? "border-[#3dd218] bg-[rgba(94,255,53,0.1)]"
-                            : "border-[#ff9900] bg-[rgba(255,153,0,0.12)]"
+                            ? "border-saffron bg-saffron-tint"
+                            : "border-amber bg-amber-tint"
                         }`}
                         style={{
                           left: `${h.bbox[0] * 100}%`,
@@ -363,8 +407,8 @@ export default function MappingScreen({ result, pages }: { result: JobResult; pa
                         }}
                       >
                         <span
-                          className={`absolute -top-7 left-3.5 rounded-t-xl px-3 py-1 text-base font-bold text-white ${
-                            h.tone === "success" ? "bg-success" : "bg-[#ff9900]"
+                          className={`absolute -top-5 left-0 rounded-t-sm px-2 py-0.5 font-mono text-[11px] text-[#0B0C0F] ${
+                            h.tone === "success" ? "bg-saffron" : "bg-amber"
                           }`}
                         >
                           {h.label}

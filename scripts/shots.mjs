@@ -11,13 +11,13 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 810, deviceScaleFactor: 1.5 });
 
-await page.goto("http://localhost:3000", { waitUntil: "networkidle0" });
+await page.goto("http://localhost:3000/parakh", { waitUntil: "networkidle0" });
 await page.screenshot({ path: "docs/upload.png" });
 
 // run the sample exam end-to-end
 await page.evaluate(() => {
   [...document.querySelectorAll("button")]
-    .find((b) => b.textContent.includes("Try the sample exam"))
+    .find((b) => /sample exam/i.test(b.textContent))
     ?.click();
 });
 await page.waitForFunction(
@@ -26,11 +26,11 @@ await page.waitForFunction(
 );
 await page.evaluate(() => {
   [...document.querySelectorAll("button")]
-    .find((b) => b.textContent.includes("Start Mapping"))
+    .find((b) => /run the check|start mapping/i.test(b.textContent))
     ?.click();
 });
 await page.waitForFunction(
-  () => document.body.textContent.includes("Grading Summary"),
+  () => /accounted for|Grading Summary/i.test(document.body.textContent),
   { timeout: 180000, polling: 1000 }
 );
 // select Q2 so a highlight is visible

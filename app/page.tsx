@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import Sidebar from "@/components/Sidebar";
-import TopBar from "@/components/TopBar";
 import UploadScreen from "@/components/UploadScreen";
 import LoadingScreen from "@/components/LoadingScreen";
 import MappingScreen from "@/components/MappingScreen";
@@ -48,14 +47,14 @@ export default function Home() {
       }
 
       setDetail("Extracting questions...");
-      const { questions } = await api<{ questions: object[] }>("/api/questions", {
+      const { questions } = await api<{ questions: object[] }>("/parakh/api/questions", {
         qpText: qpDoc.text.length > 200 ? qpDoc.text : undefined,
         qpImages:
           qpDoc.text.length > 200 ? undefined : qpDoc.pages.map((p) => toImagePart(p.dataUrl)),
       });
 
       setDetail("Mapping answers & grading...");
-      const graded = await api<JobResult>("/api/grade", {
+      const graded = await api<JobResult>("/parakh/api/grade", {
         questions,
         pages: ansDoc.pages.map((p) => ({
           index: p.index,
@@ -75,23 +74,26 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex h-screen gap-3 p-3">
+    <div className="flex h-screen">
       <Sidebar collapsed={phase === "results"} />
-      <main className="flex min-w-0 flex-1 flex-col gap-3">
-        <TopBar
-          onHome={
-            phase === "results"
-              ? () => {
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1280px] flex-1 flex-col overflow-hidden px-8 py-7">
+          <div key={phase} className="enter-rise flex min-h-0 flex-1 flex-col">
+            {phase === "upload" && <UploadScreen onStart={start} error={error} />}
+            {phase === "loading" && <LoadingScreen detail={detail} />}
+            {phase === "results" && result && (
+              <MappingScreen
+                result={result}
+                pages={ansPages}
+                onReset={() => {
                   setPhase("upload");
                   setResult(null);
                   setAnsPages([]);
-                }
-              : undefined
-          }
-        />
-        {phase === "upload" && <UploadScreen onStart={start} error={error} />}
-        {phase === "loading" && <LoadingScreen detail={detail} />}
-        {phase === "results" && result && <MappingScreen result={result} pages={ansPages} />}
+                }}
+              />
+            )}
+          </div>
+        </div>
       </main>
     </div>
   );
