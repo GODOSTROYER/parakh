@@ -7,7 +7,7 @@ paper and a student's answer sheet and it extracts every question, locates each 
 sheet, outlines the exact ink region, scores it, and writes per-question and overall feedback. A
 teacher sees at a glance what was answered, where, and what was missed.
 
-Live at **[www.arnavbule.in/parakh](https://www.arnavbule.in/parakh)** · Source at
+Live demo at **[www.arnavbule.in/parakh](https://www.arnavbule.in/parakh)** · Source at
 [github.com/GODOSTROYER/parakh](https://github.com/GODOSTROYER/parakh)
 
 ![Upload screen: two dropzones for the question paper and answer sheet, optional marking scheme](docs/upload.png)
@@ -120,4 +120,4 @@ refresh.
 An earlier local-GPU variant (DeepSeek-OCR-2 + Codex CLI) is preserved at the
 `vedaai-deepseek-submission` git tag.
 
-Built by [Arnav Bule](https://www.arnavbule.in).
+Built by [Arnav Bule](https://www.arnavbule.in) ([GitHub](https://github.com/GODOSTROYER)).
